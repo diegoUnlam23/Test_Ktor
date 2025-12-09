@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Matriz de Asignación de Obras</title>
+    <style>
+        body {
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            background-color: #f9f9f9;
+        }
+
+        /* --- Barra de Filtros --- */
+        #barra-filtros {
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        /* --- Formulario de Entrada --- */
+        #formulario-entrada {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px; /* Un poco más de espacio */
+            margin-bottom: 20px;
+            padding: 20px;
+            border: 1px solid #c8e6c9;
+            background-color: #e8f5e9;
+            border-radius: 8px;
+            align-items: flex-end; /* Alinear abajo para que el botón cuadre con los inputs */
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .input-group label {
+            font-size: 0.85em;
+            font-weight: bold;
+            color: #2e7d32;
+        }
+
+        /* Inputs estilizados */
+        input,
+        select {
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            min-width: 150px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            height: 40px; /* Altura fija para alinearse con inputs */
+        }
+        button:hover {
+            background-color: #388e3c;
+        }
+        button.btn-blue {
+            background-color: #2196f3;
+        }
+        button.btn-blue:hover {
+            background-color: #0b7dda;
+        }
+
+        /* --- Tabla --- */
+        #matriz-container {
+            overflow-x: auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: center;
+            min-width: 120px;
+            vertical-align: top;
+        }
+
+        thead th {
+            background-color: #f1f1f1;
+            position: sticky;
+            top: 0;
+            z-index: 5;
+        }
+        tbody th {
+            background-color: #e3f2fd;
+            position: sticky;
+            left: 0;
+            z-index: 6;
+            text-align: left;
+        }
+        thead th:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 10;
+            background-color: #1565c0;
+            color: white;
+        }
+
+        .tag-obra {
+            display: block;
+            background-color: #fff3e0;
+            border: 1px solid #ffe0b2;
+            color: #e65100;
+            padding: 2px 5px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            margin-bottom: 4px;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+<h1>🗓️ Planificación de Obras</h1>
+
+<div id="barra-filtros">
+    <strong>📅 Visualización:</strong>
+    <label>Desde: <input type="date" id="filtroInicio" /></label>
+    <label>Hasta: <input type="date" id="filtroFin" /></label>
+    <button class="btn-blue" onclick="cargarRegistros()">
+        🔍 Actualizar
+    </button>
+</div>
+
+<div id="formulario-entrada">
+    <div class="input-group">
+        <label>Fecha:</label>
+        <input type="date" id="inputFecha" required />
+    </div>
+
+    <div class="input-group">
+        <label>Legajo (Operario):</label>
+        <input
+                type="text"
+                id="inputLegajo"
+                list="listaLegajos"
+                placeholder="Escriba legajo..."
+                required
+                autocomplete="off"
+        />
+        <datalist id="listaLegajos"></datalist>
+    </div>
+
+    <div class="input-group">
+        <label>Código Obra:</label>
+        <input
+                type="text"
+                id="inputObra"
+                list="listaObras"
+                placeholder="Escriba código..."
+                required
+                autocomplete="off"
+        />
+        <datalist id="listaObras"></datalist>
+    </div>
+
+    <button onclick="agregarRegistro()">➕ Guardar</button>
+</div>
+
+<div id="matriz-container">
+    <table id="matriz-registros"></table>
+</div>
+
+<script>
+    // --- Configuración ---
+    const API_URL = "http://localhost:3000/api";
+
+    // Variables de Datos
+    let datosMatriz = {};
+    let legajosUnicos = new Set();
+    let fechasUnicas = new Set();
+
+    // Mapas para validación y búsqueda rápida (Código -> Nombre)
+    let mapaLegajos = {};
+    let mapaObras = {};
+
+    // --- Inicialización ---
+    document.addEventListener("DOMContentLoaded", async () => {
+        const hoy = new Date();
+        const primerDia = new Date(hoy.getFullYear(), hoy.getMonth(), 1)
+            .toISOString()
+            .split("T")[0];
+        const ultimoDia = new Date(
+            hoy.getFullYear(),
+            hoy.getMonth() + 1,
+            0,
+        )
+            .toISOString()
+            .split("T")[0];
+
+        document.getElementById("filtroInicio").value = primerDia;
+        document.getElementById("filtroFin").value = ultimoDia;
+        document.getElementById("inputFecha").value = new Date()
+            .toISOString()
+            .split("T")[0];
+
+        await Promise.all([cargarObras(), cargarLegajos()]);
+        cargarRegistros();
+    });
+
+    // --- 1. Cargar Listas para el Datalist ---
+    async function cargarObras() {
+        try {
+            const res = await fetch(`${API_URL}/obras`);
+            const obras = await res.json();
+
+            const datalist = document.getElementById("listaObras");
+            datalist.innerHTML = ""; // Limpiar
+            mapaObras = {}; // Reiniciar mapa
+
+            obras.forEach((o) => {
+                // Guardamos en el mapa: "00001" -> "REMODELACION..."
+                mapaObras[o.codigo] = o.nombre;
+
+                // Creamos la opción para el datalist
+                const opt = document.createElement("option");
+                opt.value = o.codigo; // Lo que se escribe en el input
+                opt.label = o.nombre; // Lo que se ve como ayuda gris (depende del navegador)
+                datalist.appendChild(opt);
+            });
+        } catch (e) {
+            console.error("Error cargando obras", e);
+        }
+    }
+
+    async function cargarLegajos() {
+        try {
+            const res = await fetch(`${API_URL}/legajos`);
+            const legajos = await res.json();
+
+            const datalist = document.getElementById("listaLegajos");
+            datalist.innerHTML = "";
+            mapaLegajos = {};
+
+            legajos.forEach((l) => {
+                // El legajo viene como número, lo convertimos a string para el mapa
+                const idStr = String(l.legajo);
+                mapaLegajos[idStr] = l.nombre;
+
+                const opt = document.createElement("option");
+                opt.value = idStr;
+                opt.label = l.nombre; // Ej: "Juan Perez"
+                datalist.appendChild(opt);
+            });
+        } catch (e) {
+            console.error("Error cargando legajos", e);
+        }
+    }
+
+    // --- 2. Cargar Matriz (Sin cambios mayores) ---
+    async function cargarRegistros() {
+        const inicio = document.getElementById("filtroInicio").value;
+        const fin = document.getElementById("filtroFin").value;
+
+        try {
+            const response = await fetch(
+                `${API_URL}/registros?inicio=${inicio}&fin=${fin}`,
+            );
+            const registros = await response.json();
+
+            datosMatriz = {};
+            legajosUnicos.clear();
+            fechasUnicas.clear();
+
+            registros.forEach((reg) => {
+                const { fecha, legajo, obra } = reg;
+                if (!datosMatriz[fecha]) datosMatriz[fecha] = {};
+                if (!datosMatriz[fecha][legajo])
+                    datosMatriz[fecha][legajo] = [];
+
+                datosMatriz[fecha][legajo].push(obra);
+                legajosUnicos.add(legajo);
+                fechasUnicas.add(fecha);
+            });
+
+            renderizarMatriz();
+        } catch (error) {
+            console.error("Error cargando registros:", error);
+        }
+    }
+
+    // --- 3. Agregar Registro (Lógica Actualizada) ---
+    async function agregarRegistro() {
+        const fecha = document.getElementById("inputFecha").value;
+
+        // Obtenemos lo que escribió el usuario
+        const legajoInput = document
+            .getElementById("inputLegajo")
+            .value.trim();
+        const obraInput = document
+            .getElementById("inputObra")
+            .value.trim();
+
+        if (!fecha || !legajoInput || !obraInput) {
+            alert("Por favor completa fecha, legajo y código de obra.");
+            return;
+        }
+
+        // --- VALIDACIÓN LOCAL ---
+        // Verificamos si el código escrito existe en nuestros mapas
+        if (!mapaLegajos[legajoInput]) {
+            alert(
+                `⚠️ El legajo "${legajoInput}" no existe en la base de datos.`,
+            );
+            return;
+        }
+        if (!mapaObras[obraInput]) {
+            alert(`⚠️ El código de obra "${obraInput}" no es válido.`);
+            return;
+        }
+
+        // Recuperamos el NOMBRE real para enviarlo al backend (para llenar asob_desc)
+        const nombreObra = mapaObras[obraInput];
+
+        try {
+            const response = await fetch(`${API_URL}/registros`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    fecha,
+                    legajo: legajoInput,
+                    codigoObra: obraInput,
+                    nombreObra: nombreObra,
+                }),
+            });
+
+            if (!response.ok)
+                throw new Error(
+                    "Error en BD (posible clave duplicada o conexión)",
+                );
+
+            await cargarRegistros();
+
+            // Opcional: Limpiar obra para agilizar la siguiente carga del mismo legajo
+            document.getElementById("inputObra").value = "";
+            document.getElementById("inputObra").focus();
+        } catch (error) {
+            console.error(error);
+            alert("Error al guardar. Revisa la consola.");
+        }
+    }
+
+    // --- 4. Renderizado (Igual que antes) ---
+    function renderizarMatriz() {
+        const tabla = document.getElementById("matriz-registros");
+        tabla.innerHTML = "";
+
+        const legajosArr = Array.from(legajosUnicos).sort(
+            (a, b) => a - b,
+        );
+        const fechasArr = Array.from(fechasUnicas).sort();
+
+        if (legajosArr.length === 0) {
+            tabla.innerHTML =
+                "<tr><td style='padding:20px'>No hay datos para mostrar en estas fechas.</td></tr>";
+            return;
+        }
+
+        // Cabecera
+        const thead = tabla.createTHead();
+        const rowHead = thead.insertRow();
+        const thCorner = document.createElement("th");
+        thCorner.textContent = "Legajo";
+        rowHead.appendChild(thCorner);
+
+        fechasArr.forEach((f) => {
+            const th = document.createElement("th");
+            const [y, m, d] = f.split("-");
+            th.textContent = `${d}/${m}`;
+            th.title = f;
+            rowHead.appendChild(th);
+        });
+
+        // Cuerpo
+        const tbody = tabla.createTBody();
+        legajosArr.forEach((leg) => {
+            const row = tbody.insertRow();
+
+            const thLeg = document.createElement("th");
+            // Buscamos el nombre en el mapa, o usamos el ID si no carga
+            const nombreLegajo = mapaLegajos[leg]
+                ? `${leg} - ${mapaLegajos[leg]}`
+                : leg;
+            thLeg.textContent = nombreLegajo;
+            row.appendChild(thLeg);
+
+            fechasArr.forEach((f) => {
+                const cell = row.insertCell();
+                const obras =
+                    datosMatriz[f] && datosMatriz[f][leg]
+                        ? datosMatriz[f][leg]
+                        : [];
+
+                if (obras.length > 0) {
+                    cell.innerHTML = obras
+                        .map(
+                            (o) => `<span class="tag-obra">${o}</span>`,
+                        )
+                        .join("");
+                } else {
+                    cell.textContent = "-";
+                    cell.style.color = "#eee";
+                }
+            });
+        });
+    }
+</script>
+</body>
+</html>
